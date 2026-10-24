@@ -1,0 +1,4 @@
+# ZCode's prompt, extracted locally on first start. Never commit or share it.
+zcode-plan-preamble.json
+*.log
+node_modules/
