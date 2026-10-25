@@ -89,7 +89,8 @@ HTTP 405 {"code":3012,"msg":"request has been blocked due to unusual activity."}
    それ以外（Claude 系の名前など）はデフォルトモデルにフォールバックします。
 5. ZCode のクライアントヘッダ（`user-agent: ZCode/3.16.3`、`x-zcode-agent:
    glm`、`x-zcode-app-version` など）を付与します。
-6. SSE も非ストリーミングもそのまま透過。tool 呼び出しも機能します。
+6. SSE も非ストリーミングもそのまま透過し、tool 呼び出しも機能します。上流との
+   TLS 接続は再利用し、呼び出し元の `anthropic-beta` もそのまま転送します。
 
 ## クイックスタート
 
@@ -188,8 +189,9 @@ magpie claude office/zcode-start-plan/GLM-5.3
   プランです。
 - 門 2 は固定のチェックサムではなく振る舞い検知です。Z.ai はいつでも変更でき、
   リレーは動かなくなる可能性があります。
-- リレーは呼び出し元の `tools` と会話をそのまま保持しますが、ZCode 自身の
-  リクエストに合わせて `thinking` / `output_config` のデフォルトを常に補います。
+- `thinking` / `output_config` は透過のみで、デフォルトを注入しません（旧版は
+  ZCode と同じ `thinking: enabled` + `effort: max` を注入しており、思考を要求しない
+  呼び出し元に 1.2 秒以上の推論レイテンシを上乗せしていました）。
 
 ## トラブルシューティング
 
@@ -200,6 +202,7 @@ magpie claude office/zcode-start-plan/GLM-5.3
 | `upstream 405 … 3012` | 形状を拒否された：プレランブルファイルの破損が疑わしい（第 1 ブロックは原文のまま） |
 | `upstream 400 … model not allowed` | プラン外のモデルを要求した |
 | 401 が続く | トークンが本当に無効：ZCode で再ログイン。リレーは自動で再読み込み |
+| 新しい会話の最初のターンが 20 秒以上かかることがある | 上流側の揺らぎ——リレーなしで直接叩いても再現し、リレーは無関係。再試行すれば回復 |
 
 ## リバースエンジニアリングの概要
 

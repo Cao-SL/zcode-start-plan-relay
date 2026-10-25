@@ -90,7 +90,8 @@ In short: **the first two blocks of ZCode's system preamble must be present
    else (e.g. a Claude model name) falls back to the default model.
 5. Attaches ZCode's client headers (`user-agent: ZCode/3.16.3`,
    `x-zcode-agent: glm`, `x-zcode-app-version`, …).
-6. Streams SSE (and non-streaming) straight through; tool calls work.
+6. Streams SSE (and non-streaming) straight through; tool calls work; upstream
+   TLS connections are reused and the caller's `anthropic-beta` list is forwarded.
 
 ## Quick start
 
@@ -189,8 +190,10 @@ magpie claude office/zcode-start-plan/GLM-5.3
   limited allowance.
 - Gate 2 is behavioural, not a fixed checksum; Z.ai can change it at any time
   and the relay may stop working.
-- The relay keeps the caller's `tools` and conversation intact, but always adds
-  `thinking` and `output_config` defaults matching ZCode's own requests.
+- The relay passes `thinking` / `output_config` through untouched — no defaults
+  are injected. (An earlier version injected ZCode's own `thinking: enabled` +
+  `effort: max`; measured, that added 1.2s+ of reasoning latency to callers
+  that never asked for it.)
 
 ## Troubleshooting
 
@@ -201,6 +204,7 @@ magpie claude office/zcode-start-plan/GLM-5.3
 | `upstream 405 … 3012` | the shape was rejected: the preamble file is probably damaged (first block must stay verbatim) |
 | `upstream 400 … model not allowed` | a model outside the plan was requested |
 | repeated 401 | the token is truly invalid: re-login in ZCode; the relay re-reads automatically |
+| first turn of a new conversation sometimes takes 20s+ | upstream-side variance — reproduced against the plan endpoint with no relay in the middle; a retry is fast. Nothing the relay can do |
 
 ## How it was reverse engineered (short version)
 

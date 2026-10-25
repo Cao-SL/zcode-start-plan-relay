@@ -82,7 +82,8 @@ messages、额外的 system 块都是自由的。
    Claude 系列）落到默认模型。
 5. 补齐 ZCode 的客户端请求头（`user-agent: ZCode/3.16.3`、`x-zcode-agent:
    glm`、`x-zcode-app-version` 等）。
-6. SSE 与非流式原样透传，tool 调用可用。
+6. SSE 与非流式原样透传，tool 调用可用；上游 TLS 连接复用，调用方的
+   `anthropic-beta` 原样转发。
 
 ## 快速开始
 
@@ -177,8 +178,9 @@ magpie claude office/zcode-start-plan/GLM-5.3
   （实测能压住，但毕竟不是原生 system 角色）。
 - 额度算在你自己的 Start Plan 上——促销型计划，有有效期和限量。
 - 门 2 是行为风控而非固定校验；Z.ai 随时可能调整，反代可能随之失效。
-- 反代会保留调用方的 `tools` 与对话内容，但总是补上与 ZCode 自身请求一致的
-  `thinking` / `output_config` 默认值。
+- 反代对 `thinking` / `output_config` 只透传、不注入默认值（旧版会注入 ZCode
+  自己的 `thinking: enabled` + `effort: max`，实测给没要求思考的调用方平添
+  1.2 秒以上的推理延迟）。
 
 ## 排错
 
@@ -189,6 +191,7 @@ magpie claude office/zcode-start-plan/GLM-5.3
 | `upstream 405 … 3012` | 形状被风控：多半是前言文件被改坏（第 1 块必须原样） |
 | `upstream 400 … model not allowed` | 请求了计划外的模型 |
 | 连续 401 | 令牌确实失效：在 ZCode 里重新登录，反代自动重读 |
+| 新会话第一轮偶尔 20 秒以上 | 上游自身的波动——绕过反代直连也复现，与反代无关；重试即恢复 |
 
 ## 逆向过程（简述）
 

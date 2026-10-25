@@ -95,8 +95,8 @@ function jwtPayload(token) {
 function jwtIssuedAt(token) { return Number(jwtPayload(token).iat || 0); }
 
 // ---- ZCode's client identity ------------------------------------------------
-function clientHeaders(token) {
-  return {
+function clientHeaders(token, beta) {
+  const headers = {
     authorization: `Bearer ${token}`,
     'user-agent': 'ZCode/3.16.3',
     'http-referer': upstreamOrigin,
@@ -118,6 +118,9 @@ function clientHeaders(token) {
     'anthropic-version': '2023-06-01',
     'content-type': 'application/json',
   };
+  // keep the caller's beta list (e.g. context-1m) instead of dropping it
+  if (beta) headers['anthropic-beta'] = beta;
+  return headers;
 }
 
 // ---- ZCode's system preamble ------------------------------------------------
@@ -233,8 +236,11 @@ function buildVariants(raw) {
   if (body.stop_sequences) shared.stop_sequences = body.stop_sequences;
   if (body.temperature !== undefined) shared.temperature = body.temperature;
   if (body.top_p !== undefined) shared.top_p = body.top_p;
-  shared.thinking = body.thinking && typeof body.thinking === 'object' ? body.thinking : { type: 'enabled' };
-  shared.output_config = body.output_config && typeof body.output_config === 'object' ? body.output_config : { effort: 'max' };
+  // Pass the caller's reasoning config through as-is. Injecting ZCode's own
+  // defaults here (thinking enabled + effort max) was measured to add 1.2s+
+  // of reasoning latency to callers that never asked for it.
+  if (body.thinking && typeof body.thinking === 'object') shared.thinking = body.thinking;
+  if (body.output_config && typeof body.output_config === 'object') shared.output_config = body.output_config;
   shared.metadata = { user_id: jwtPayload(liveToken()).user_id || '' };
 
   const asBlocks = blocks.map((text) => ({ type: 'text', text }));
@@ -267,10 +273,14 @@ function buildVariants(raw) {
 // ---- Forwarding -------------------------------------------------------------
 const upstream = new URL(upstreamOrigin);
 const transport = upstream.protocol === 'http:' ? http : https;
+// Reuse TLS connections across requests instead of re-handshaking per call.
+const keepAliveAgent = upstream.protocol === 'http:'
+  ? new http.Agent({ keepAlive: true, maxSockets: 32 })
+  : new https.Agent({ keepAlive: true, maxSockets: 32 });
 
-function forward(variants, index, token, res, { tokenRetried = false } = {}) {
+function forward(variants, index, token, res, { tokenRetried = false, beta = '' } = {}) {
   const variant = variants[index];
-  const headers = { ...clientHeaders(token), 'content-length': Buffer.byteLength(variant.body) };
+  const headers = { ...clientHeaders(token, beta), 'content-length': Buffer.byteLength(variant.body) };
 
   const out = transport.request({
     protocol: upstream.protocol,
@@ -279,6 +289,7 @@ function forward(variants, index, token, res, { tokenRetried = false } = {}) {
     method: 'POST',
     path: `${planPath}/v1/messages`,
     headers,
+    agent: keepAliveAgent,
   }, (up) => {
     const status = up.statusCode || 502;
 
@@ -295,7 +306,7 @@ function forward(variants, index, token, res, { tokenRetried = false } = {}) {
         res.end(JSON.stringify({ type: 'error', error: { type: 'no_credential', message: e.message } }));
         return;
       }
-      forward(variants, index, fresh, res, { tokenRetried: true });
+      forward(variants, index, fresh, res, { tokenRetried: true, beta });
       return;
     }
 
@@ -316,7 +327,7 @@ function forward(variants, index, token, res, { tokenRetried = false } = {}) {
       const blocked = status === 405 && text.includes('3012');
       if (blocked && index + 1 < variants.length) {
         log(`blocked (3012) on ${variant.name}; retrying with ${variants[index + 1].name}`);
-        forward(variants, index + 1, token, res, { tokenRetried });
+        forward(variants, index + 1, token, res, { tokenRetried, beta });
         return;
       }
       log(`upstream ${status} on ${variant.name}: ${text.slice(0, 240).replace(/\s+/g, ' ')}`);
@@ -407,7 +418,7 @@ const server = http.createServer((req, res) => {
     }
 
     log(`${req.method} ${url} model->${prepared.model} stream=${prepared.stream} callerSystem=${prepared.callerSystem} ${prepared.variants[0].body.length}B`);
-    forward(prepared.variants, 0, token, res);
+    forward(prepared.variants, 0, token, res, { beta: String(req.headers['anthropic-beta'] || '') });
   });
 });
 
