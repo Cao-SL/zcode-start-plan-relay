@@ -204,7 +204,7 @@ magpie claude office/zcode-start-plan/GLM-5.3
 | `upstream 405 … 3012` | the shape was rejected: the preamble file is probably damaged (first block must stay verbatim) |
 | `upstream 400 … model not allowed` | a model outside the plan was requested |
 | repeated 401 | the token is truly invalid: re-login in ZCode; the relay re-reads automatically |
-| first turn of a new conversation sometimes takes 20s+ | upstream-side variance — reproduced against the plan endpoint with no relay in the middle; a retry is fast. Nothing the relay can do |
+| first turn of a new conversation sometimes takes 20s+ | seen once on a fresh request prefix through the relay; earlier fresh-prefix probes were 4–5s, so this looks like upstream-side variance — retrying is fast |
 
 ## How it was reverse engineered (short version)
 
